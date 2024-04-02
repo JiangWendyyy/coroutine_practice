@@ -19,9 +19,11 @@ package com.example.android.advancedcoroutines
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.switchMap
+import androidx.lifecycle.asLiveData
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.launch
 
 /**
@@ -57,54 +59,60 @@ class PlantListViewModel internal constructor(
     /**
      * The current growZone selection.
      */
-    private val growZone = MutableLiveData<GrowZone>(NoGrowZone)
+    private val growZone = MutableLiveData(NoGrowZone)
 
-    /**
-     * A list of plants that updates based on the current filter.
-     */
-    val plants: LiveData<List<Plant>> = growZone.switchMap { growZone ->
+    private val growZoneFlow = MutableStateFlow(NoGrowZone)
+
+    val plantsUsingFlow: LiveData<List<Plant>> = growZoneFlow.flatMapLatest { growZone ->
         if (growZone == NoGrowZone) {
-            plantRepository.plants
+            plantRepository.plantsFlow
         } else {
-            plantRepository.getPlantsWithGrowZone(growZone)
+            plantRepository.getPlantsWithGrowZoneFlow(growZone)
+        }
+    }.asLiveData()
+
+    fun setGrowZoneNumber(num: Int) {
+        growZone.value = GrowZone(num)
+        growZoneFlow.value = GrowZone(num)
+
+        launchDataLoad {
+            plantRepository.tryUpdateRecentPlantsForGrowZoneCache(GrowZone(num)) }
+    }
+
+    fun clearGrowZoneNumber() {
+        growZone.value = NoGrowZone
+        growZoneFlow.value = NoGrowZone
+
+        launchDataLoad {
+            plantRepository.tryUpdateRecentPlantsCache()
         }
     }
 
     init {
         // When creating a new ViewModel, clear the grow zone and perform any related udpates
         clearGrowZoneNumber()
-    }
 
-    /**
-     * Filter the list to this grow zone.
-     *
-     * In the starter code version, this will also start a network request. After refactoring,
-     * updating the grow zone will automatically kickoff a network request.
-     */
-    fun setGrowZoneNumber(num: Int) {
-        growZone.value = GrowZone(num)
-
-        // initial code version, will move during flow rewrite
+        // fetch the full plant list
         launchDataLoad { plantRepository.tryUpdateRecentPlantsCache() }
-    }
 
-    /**
-     * Clear the current filter of this plants list.
-     *
-     * In the starter code version, this will also start a network request. After refactoring,
-     * updating the grow zone will automatically kickoff a network request.
-     */
-    fun clearGrowZoneNumber() {
-        growZone.value = NoGrowZone
-
-        // initial code version, will move during flow rewrite
-        launchDataLoad { plantRepository.tryUpdateRecentPlantsCache() }
+        //这段会报错。。
+        /*growZone.mapLatest { growZone ->
+            _spinner.value = true
+            if (growZone == NoGrowZone) {
+                plantRepository.tryUpdateRecentPlantsCache()
+            } else {
+                plantRepository.tryUpdateRecentPlantsForGrowZoneCache(growZone)
+            }
+        }.onEach {  _spinner.value = false }
+            .catch { throwable ->  _snackbar.value = throwable.message  }
+            .launchIn(viewModelScope)*/
     }
 
     /**
      * Return true iff the current list is filtered.
      */
     fun isFiltered() = growZone.value != NoGrowZone
+
 
     /**
      * Called immediately after the UI shows the snackbar.
